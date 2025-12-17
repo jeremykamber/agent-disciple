@@ -1,0 +1,37 @@
+{
+  "name": "agent-disciple",
+  "version": "0.1.0",
+  "description": "A TypeScript package that lets AI learn from its mistakes using a RAG vector store with task-based metadata",
+  "module": "dist/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm && bun run build:types",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "dev": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "rag",
+    "vector-store",
+    "machine-learning",
+    "mistakes",
+    "learning",
+    "langchain"
+  ],
+  "author": "Jeremy",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeremykamber/agent-disciple"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

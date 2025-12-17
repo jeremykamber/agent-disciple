@@ -27,7 +27,8 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
     query: string,
     options?: QueryOptions
   ): Promise<QueryResult[]> {
-    // Simple keyword-based matching (in production, use actual embeddings)
+    // NOTE: This is a simplified implementation for testing/examples.
+    // In production, use actual vector embeddings with cosine similarity.
     const results: QueryResult[] = [];
     const k = options?.k ?? 10;
 
@@ -40,18 +41,25 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
               const metadataKey = key.replace('metadata.', '');
               return doc.metadata[metadataKey] === value;
             }
-            return (doc as any)[key] === value;
+            // Access document properties with type safety
+            if (key in doc) {
+              return doc[key as keyof MistakeDocument] === value;
+            }
+            return false;
           }
         );
         if (!matchesFilter) continue;
       }
 
-      // Simple text similarity (case-insensitive substring match)
+      // Simplified keyword matching (not a true similarity measure)
+      // Real implementations should use vector embeddings and cosine similarity
       const queryLower = query.toLowerCase();
       const contentLower = doc.content.toLowerCase();
       
       if (contentLower.includes(queryLower)) {
-        const score = queryLower.length / contentLower.length;
+        // Simple scoring: higher score for better matches
+        // This is intentionally simplified - use proper vector similarity in production
+        const score = Math.min(1.0, queryLower.length / Math.max(queryLower.length, 10));
         
         if (!options?.scoreThreshold || score >= options.scoreThreshold) {
           results.push({ document: doc, score });

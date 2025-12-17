@@ -107,6 +107,9 @@ dist
 # Docusaurus cache and generated files
 .docusaurus
 
+# Example files (for development)
+example.ts
+
 # Serverless directories
 .serverless/
 

@@ -41,6 +41,10 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Lock files (using bun)
+package-lock.json
+yarn.lock
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
@@ -107,8 +111,9 @@ dist
 # Docusaurus cache and generated files
 .docusaurus
 
-# Example files (for development)
+# Example and test files (for development)
 example.ts
+test-hnsw.ts
 
 # Serverless directories
 .serverless/

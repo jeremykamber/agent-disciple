@@ -114,6 +114,7 @@ dist
 # Example and test files (for development)
 example.ts
 test-hnsw.ts
+test-update-delete.ts
 
 # Serverless directories
 .serverless/

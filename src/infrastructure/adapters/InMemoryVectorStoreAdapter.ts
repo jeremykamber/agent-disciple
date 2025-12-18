@@ -95,6 +95,8 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
 
   /**
    * Update IDF values for all documents
+   * Note: This recalculates IDF for all documents (O(n) complexity).
+   * For large-scale production use with frequent updates, consider incremental IDF updates.
    */
   private updateIDF(): void {
     const docCount = this.documents.size;
@@ -188,7 +190,9 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
       const distance = result.distances[i];
       if (distance === undefined) continue;
       
-      // Convert distance to similarity score (cosine distance is 0-2, similarity is 1-distance/2)
+      // Convert distance to similarity score
+      // Cosine distance ranges from 0 (identical) to 2 (opposite)
+      // Convert to similarity score: 1 - (distance / 2) gives us 0-1 range
       const score = 1 - (distance / 2);
       
       if (!options?.scoreThreshold || score >= options.scoreThreshold) {
@@ -250,6 +254,7 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
       const distance = result.distances[i];
       if (distance === undefined) continue;
       
+      // Convert cosine distance (0-2) to similarity score (0-1)
       const score = 1 - (distance / 2);
       
       if (!options?.scoreThreshold || score >= options.scoreThreshold) {
@@ -281,13 +286,55 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
     };
 
     this.documents.set(id, updated);
+
+    // If content changed, rebuild the index to update embeddings
+    // Note: For production use with frequent updates, consider using a vector store
+    // that supports in-place updates (e.g., Pinecone, Qdrant)
+    if (update.content !== undefined && this.index) {
+      await this.rebuildIndex();
+    }
+  }
+
+  /**
+   * Rebuild the HNSW index from scratch with current documents
+   * This is used when documents are updated or deleted
+   */
+  private async rebuildIndex(): Promise<void> {
+    // Reset index and mappings
+    this.index = null;
+    this.idToLabel.clear();
+    this.labelToId.clear();
+    this.nextLabel = 0;
+
+    // Update IDF values
+    this.updateIDF();
+
+    // Re-initialize and rebuild
+    this.initializeIndex();
+
+    for (const [id, doc] of this.documents) {
+      const embedding = doc.embedding || this.generateEmbedding(doc.content);
+      const label = this.nextLabel++;
+      this.idToLabel.set(id, label);
+      this.labelToId.set(label, id);
+      this.index!.addPoint(embedding, label);
+    }
   }
 
   async deleteDocument(id: string): Promise<void> {
     if (!this.documents.has(id)) {
       throw new Error(`Document with id ${id} not found`);
     }
+    
+    // Remove from documents map
     this.documents.delete(id);
+    
+    // Rebuild index to remove deleted document
+    // Note: For production use with frequent deletions, consider using a vector store
+    // that supports efficient deletions (e.g., Pinecone, Qdrant)
+    if (this.index) {
+      await this.rebuildIndex();
+    }
   }
 
   async getDocument(id: string): Promise<MistakeDocument | null> {

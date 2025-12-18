@@ -83,7 +83,11 @@ This package uses hexagonal (ports and adapters) architecture:
 
 ## Vector Store Adapters
 
-The package is designed to work with any vector store through the `VectorStorePort` interface. The included `InMemoryVectorStoreAdapter` uses the HNSW (Hierarchical Navigable Small World) algorithm for efficient approximate nearest neighbor search with TF-IDF embeddings, making it suitable for development, testing, and small-scale production use. For larger scale deployments, you can implement your own adapter for production vector stores.
+The package is designed to work with any vector store through the `VectorStorePort` interface. The included `InMemoryVectorStoreAdapter` uses the HNSW (Hierarchical Navigable Small World) algorithm for efficient approximate nearest neighbor search with TF-IDF embeddings, making it suitable for development, testing, and small-scale production use. 
+
+**Performance Note**: The in-memory adapter rebuilds the HNSW index when documents are updated or deleted. For applications with frequent updates/deletions or large datasets (>10,000 documents), consider using a production vector store like Pinecone, Qdrant, or ChromaDB which support efficient incremental updates.
+
+For larger scale deployments, you can implement your own adapter for production vector stores.
 
 ### Implementing a Custom Adapter
 

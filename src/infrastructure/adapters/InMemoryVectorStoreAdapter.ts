@@ -4,22 +4,140 @@ import type {
   QueryResult
 } from '../../domain/ports/index.ts';
 import type { MistakeDocument } from '../../domain/models/index.ts';
+import { HierarchicalNSW } from 'hnswlib-node';
 
 /**
- * Simple in-memory implementation of VectorStorePort for testing and examples
+ * In-memory implementation of VectorStorePort using HNSW for efficient similarity search
  * 
- * This adapter stores documents in memory and performs basic similarity matching.
- * In production, you would use a real vector store like Pinecone, ChromaDB, etc.
+ * This adapter uses the Hierarchical Navigable Small World (HNSW) algorithm for
+ * approximate nearest neighbor search with vector embeddings.
  */
 export class InMemoryVectorStoreAdapter implements VectorStorePort {
   private documents: Map<string, MistakeDocument> = new Map();
+  private index: HierarchicalNSW | null = null;
+  private idToLabel: Map<string, number> = new Map();
+  private labelToId: Map<number, string> = new Map();
+  private nextLabel = 0;
+  private dimension = 384; // Embedding dimension
+  private maxElements = 10000;
+  private vocabulary: Set<string> = new Set();
+  private idf: Map<string, number> = new Map();
+
+  /**
+   * Initialize the HNSW index
+   */
+  private initializeIndex(): void {
+    if (!this.index) {
+      this.index = new HierarchicalNSW('cosine', this.dimension);
+      this.index.initIndex(this.maxElements);
+    }
+  }
+
+  /**
+   * Simple text tokenizer
+   */
+  private tokenize(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(token => token.length > 0);
+  }
+
+  /**
+   * Generate TF-IDF based embedding for text
+   * This creates a fixed-dimension vector representation
+   */
+  private generateEmbedding(text: string): number[] {
+    const tokens = this.tokenize(text);
+    const termFreq = new Map<string, number>();
+    
+    // Calculate term frequency
+    for (const token of tokens) {
+      termFreq.set(token, (termFreq.get(token) || 0) + 1);
+      this.vocabulary.add(token);
+    }
+
+    // Create a fixed-size embedding using hashing trick
+    const embedding = new Array(this.dimension).fill(0);
+    
+    for (const [term, freq] of termFreq) {
+      // Use simple hash function to map term to dimension
+      const hash = this.simpleHash(term) % this.dimension;
+      const tf = freq / tokens.length;
+      const idfValue = this.idf.get(term) || 1;
+      embedding[hash] += tf * idfValue;
+    }
+
+    // Normalize the embedding
+    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    if (magnitude > 0) {
+      for (let i = 0; i < embedding.length; i++) {
+        embedding[i] /= magnitude;
+      }
+    }
+
+    return embedding;
+  }
+
+  /**
+   * Simple hash function for mapping terms to dimensions
+   */
+  private simpleHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
+  }
+
+  /**
+   * Update IDF values for all documents
+   */
+  private updateIDF(): void {
+    const docCount = this.documents.size;
+    if (docCount === 0) return;
+
+    const docFreq = new Map<string, number>();
+    
+    // Count document frequency for each term
+    for (const doc of this.documents.values()) {
+      const tokens = new Set(this.tokenize(doc.content));
+      for (const token of tokens) {
+        docFreq.set(token, (docFreq.get(token) || 0) + 1);
+      }
+    }
+
+    // Calculate IDF
+    for (const [term, freq] of docFreq) {
+      this.idf.set(term, Math.log(docCount / freq));
+    }
+  }
 
   async addDocuments(documents: MistakeDocument[]): Promise<string[]> {
+    this.initializeIndex();
     const ids: string[] = [];
+    
     for (const doc of documents) {
       this.documents.set(doc.id, doc);
       ids.push(doc.id);
+
+      // Generate or use existing embedding
+      const embedding = doc.embedding || this.generateEmbedding(doc.content);
+      
+      // Add to HNSW index
+      const label = this.nextLabel++;
+      this.idToLabel.set(doc.id, label);
+      this.labelToId.set(label, doc.id);
+      
+      this.index!.addPoint(embedding, label);
     }
+
+    // Update IDF values after adding documents
+    this.updateIDF();
+    
     return ids;
   }
 
@@ -27,12 +145,28 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
     query: string,
     options?: QueryOptions
   ): Promise<QueryResult[]> {
-    // NOTE: This is a simplified implementation for testing/examples.
-    // In production, use actual vector embeddings with cosine similarity.
-    const results: QueryResult[] = [];
-    const k = options?.k ?? 10;
+    if (!this.index || this.documents.size === 0) {
+      return [];
+    }
 
-    for (const [id, doc] of this.documents) {
+    const k = options?.k ?? 10;
+    const queryEmbedding = this.generateEmbedding(query);
+    
+    // Search using HNSW
+    const result = this.index.searchKnn(queryEmbedding, Math.min(k * 2, this.documents.size));
+    
+    const results: QueryResult[] = [];
+    
+    for (let i = 0; i < result.neighbors.length; i++) {
+      const item = result.neighbors[i];
+      if (item === undefined) continue;
+      
+      const docId = this.labelToId.get(item);
+      if (!docId) continue;
+      
+      const doc = this.documents.get(docId);
+      if (!doc) continue;
+
       // Apply filters if provided
       if (options?.filter) {
         const matchesFilter = Object.entries(options.filter).every(
@@ -51,35 +185,81 @@ export class InMemoryVectorStoreAdapter implements VectorStorePort {
         if (!matchesFilter) continue;
       }
 
-      // Simplified keyword matching (not a true similarity measure)
-      // Real implementations should use vector embeddings and cosine similarity
-      const queryLower = query.toLowerCase();
-      const contentLower = doc.content.toLowerCase();
+      const distance = result.distances[i];
+      if (distance === undefined) continue;
       
-      if (contentLower.includes(queryLower)) {
-        // Simple scoring: higher score for better matches
-        // This is intentionally simplified - use proper vector similarity in production
-        const score = Math.min(1.0, queryLower.length / Math.max(queryLower.length, 10));
-        
-        if (!options?.scoreThreshold || score >= options.scoreThreshold) {
-          results.push({ document: doc, score });
-        }
+      // Convert distance to similarity score (cosine distance is 0-2, similarity is 1-distance/2)
+      const score = 1 - (distance / 2);
+      
+      if (!options?.scoreThreshold || score >= options.scoreThreshold) {
+        results.push({ document: doc, score });
       }
+
+      if (results.length >= k) break;
     }
 
-    // Sort by score descending and limit results
-    return results
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k);
+    return results;
   }
 
   async similaritySearchByVector(
     embedding: number[],
     options?: QueryOptions
   ): Promise<QueryResult[]> {
-    // In a real implementation, this would use vector similarity (cosine, euclidean, etc.)
-    // For now, just return empty results
-    return [];
+    if (!this.index || this.documents.size === 0) {
+      return [];
+    }
+
+    if (embedding.length !== this.dimension) {
+      throw new Error(`Embedding dimension mismatch. Expected ${this.dimension}, got ${embedding.length}`);
+    }
+
+    const k = options?.k ?? 10;
+    
+    // Search using HNSW
+    const result = this.index.searchKnn(embedding, Math.min(k * 2, this.documents.size));
+    
+    const results: QueryResult[] = [];
+    
+    for (let i = 0; i < result.neighbors.length; i++) {
+      const item = result.neighbors[i];
+      if (item === undefined) continue;
+      
+      const docId = this.labelToId.get(item);
+      if (!docId) continue;
+      
+      const doc = this.documents.get(docId);
+      if (!doc) continue;
+
+      // Apply filters if provided
+      if (options?.filter) {
+        const matchesFilter = Object.entries(options.filter).every(
+          ([key, value]) => {
+            if (key.startsWith('metadata.')) {
+              const metadataKey = key.replace('metadata.', '');
+              return doc.metadata[metadataKey] === value;
+            }
+            if (key in doc) {
+              return doc[key as keyof MistakeDocument] === value;
+            }
+            return false;
+          }
+        );
+        if (!matchesFilter) continue;
+      }
+
+      const distance = result.distances[i];
+      if (distance === undefined) continue;
+      
+      const score = 1 - (distance / 2);
+      
+      if (!options?.scoreThreshold || score >= options.scoreThreshold) {
+        results.push({ document: doc, score });
+      }
+
+      if (results.length >= k) break;
+    }
+
+    return results;
   }
 
   async updateDocument(

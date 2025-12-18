@@ -6,10 +6,11 @@ A TypeScript package that lets AI learn from its mistakes using a RAG (Retrieval
 
 - 🧠 **Task-Based Learning**: Organize mistakes by task type for more effective retrieval
 - 🔌 **Flexible Vector Store**: Compatible with LangChain's vector store abstraction, Pinecone, ChromaDB, and more
+- 🚀 **HNSW Algorithm**: Built-in in-memory adapter uses Hierarchical Navigable Small World for efficient similarity search
 - 🏗️ **Hexagonal Architecture**: Clean, maintainable code structure with clear separation of concerns
 - 🎯 **Simple API**: Easy-to-use client interface despite powerful underlying architecture
 - 📝 **Rich Metadata**: Track severity, context, solutions, and custom metadata
-- 🔍 **Smart Querying**: Find relevant past mistakes based on current task context
+- 🔍 **Smart Querying**: Find relevant past mistakes based on current task context with vector embeddings
 
 ## Installation
 
@@ -82,7 +83,7 @@ This package uses hexagonal (ports and adapters) architecture:
 
 ## Vector Store Adapters
 
-The package is designed to work with any vector store through the `VectorStorePort` interface. You can use the included `InMemoryVectorStoreAdapter` for testing or implement your own adapter for production vector stores.
+The package is designed to work with any vector store through the `VectorStorePort` interface. The included `InMemoryVectorStoreAdapter` uses the HNSW (Hierarchical Navigable Small World) algorithm for efficient approximate nearest neighbor search with TF-IDF embeddings, making it suitable for development, testing, and small-scale production use. For larger scale deployments, you can implement your own adapter for production vector stores.
 
 ### Implementing a Custom Adapter
 
